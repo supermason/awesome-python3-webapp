@@ -5,7 +5,7 @@ from www.orm import Model, StringField, BooleanField, FloatField, TextField
 
 
 def next_id():
-    return '%015%s000' % (int(time.time() * 1000), uuid.uuid4().hex)
+    return '%015d%s000' % (int(time.time() * 1000), uuid.uuid4().hex)
 
 
 class User(Model):

@@ -2,7 +2,7 @@ import asyncio, logging, aiomysql
 
 
 def log(sql, args=()):
-    logging.info('SQL: %s' % sql)
+    logging.info('>>>>SQL: %s >>>> args: %s' % (sql, ', '.join(args)))
 
 
 async def create_pool(loop, **kw):
@@ -25,7 +25,7 @@ async def create_pool(loop, **kw):
 async def select(sql, args, size=None):
     log(sql, args)
     global __pool
-    async with __pool.get() as conn:
+    async with __pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(sql.replace('?', '%s'), args or ())
             if size:
@@ -38,7 +38,7 @@ async def select(sql, args, size=None):
 
 async def execute(sql, args, autocommit=True):
     log(sql, args)
-    async with __pool.get() as conn:
+    async with __pool.acquire() as conn:
         if not autocommit:
             await conn.begin()
         try:
@@ -55,10 +55,10 @@ async def execute(sql, args, autocommit=True):
 
 
 def create_args_string(num):
-    L = []
+    li = []
     for n in range(num):
-        L.append('?')
-    return ', '.join(L)
+        li.append('?')
+    return ', '.join(li)
 
 
 class Field(object):
@@ -78,7 +78,7 @@ class StringField(Field):
 
 
 class BooleanField(Field):
-    def __init__(self, name=None, primary_key=False, default=False):
+    def __init__(self, name=None, default=False):
         super().__init__(name, 'boolean', False, default)
 
 
@@ -98,9 +98,10 @@ class TextField(Field):
 
 
 class ModelMetaclass(type):
-    def __new__(cls, name, bases, attrs):
+    def __new__(mcs, name, bases, attrs):
         if name == 'Model':
-            return type.__new__(cls, name, bases, attrs)
+            return type.__new__(mcs, name, bases, attrs)
+        logging.info(' >>>>> In ModelMetaclass ==> attrs: %s' % ', '.join(attrs))
         table_name = attrs.get('__table__', None) or name
         logging.info('found model: %s (table: %s)' % (name, table_name))
         mappings = dict()
@@ -121,7 +122,7 @@ class ModelMetaclass(type):
         for k in mappings.keys():
             attrs.pop(k)
         escaped_fields = list(map(lambda f: '`%s`' % f, fields))
-        attrs['__mappings__'] = mappings # 保存属性和列的映射关系
+        attrs['__mappings__'] = mappings  # 保存属性和列的映射关系
         attrs['__table__'] = table_name
         attrs['__primary_key__'] = primary_key
         attrs['__fields__'] = fields
@@ -129,7 +130,7 @@ class ModelMetaclass(type):
         attrs['__insert__'] = 'INSERT INTO `%s` (%s, `%s`) VALUES (%s)' % (table_name, ', '.join(escaped_fields), primary_key, create_args_string(len(escaped_fields) + 1))
         attrs['__update__'] = 'UPDATE `%s` SET %s WHERE `%s` = ?' % (table_name, ', '.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primary_key)
         attrs['__delete__'] = 'DELETE FROM `%s` WHERE `%s` = ?' % (table_name, primary_key)
-        return type.__new__(cls, name, bases, attrs)
+        return type.__new__(mcs, name, bases, attrs)
 
 
 class Model(dict, metaclass=ModelMetaclass):
@@ -150,8 +151,10 @@ class Model(dict, metaclass=ModelMetaclass):
 
     def get_value_or_default(self, key):
         value = getattr(self, key, None)
+        # logging.info('1 >>>> In method get_value_or_default() ==> [key::%s = value::%s] ' % (key, value))
         if value is None:
             field = self.__mappings__[key]
+            # logging.info('2 >>>> In method get_value_or_default() ==> [key::%s = field::%s] ' % (key, field))
             if field.default is not None:
                 value = field.default() if callable(field.default) else field.default
                 logging.debug('using default value for %s: %s' % (key, str(value)))
@@ -160,7 +163,13 @@ class Model(dict, metaclass=ModelMetaclass):
 
     @classmethod
     async def find_all(cls, where=None, args=None, **kw):
-        ' find objects by where clause. '
+        """
+        find objects by where clause.
+        :param where:
+        :param args:
+        :param kw:
+        :return:
+        """
         sql = [cls.__select__]
         if where:
             sql.append('WHERE')
@@ -187,8 +196,14 @@ class Model(dict, metaclass=ModelMetaclass):
 
     @classmethod
     async def find_number(cls, select_field, where=None, args=None):
-        ' find number by select and where. '
-        sql = ['select %s _num_ from `%s`' % (select_field, cls.__table__)]
+        """
+        find number by select and where.
+        :param select_field:
+        :param where:
+        :param args:
+        :return:
+        """
+        sql = ['SELECT %s _num_ FROM `%s`' % (select_field, cls.__table__)]
         if where:
             sql.append('WHERE')
             sql.append(where)
@@ -199,8 +214,12 @@ class Model(dict, metaclass=ModelMetaclass):
 
     @classmethod
     async def find(cls, pk):
-        ' find object by primary key. '
-        rs = await select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
+        """
+        find object by primary key.
+        :param pk:
+        :return:
+        """
+        rs = await select('%s WHERE `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
         if len(rs) == 0:
             return None
         return cls(**rs[0])
@@ -212,7 +231,7 @@ class Model(dict, metaclass=ModelMetaclass):
         if rows != 1:
             logging.warning('failed to insert record: affected rows: %s' % rows)
 
-    async def update(self):
+    async def update_(self):
         args = list(map(self.get_value, self.__fields__))
         args.append(self.get_value(self.__primary_key__))
         rows = await execute(self.__update__, args)
