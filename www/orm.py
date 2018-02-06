@@ -1,8 +1,18 @@
 import asyncio, logging, aiomysql
+from collections import Iterable
 
 
 def log(sql, args=()):
-    logging.info('>>>>SQL: %s >>>> args: %s' % (sql, ', '.join(args)))
+    logging.info('>>>>SQL: %s >>>> args: %s' % (sql, ''))  #'', '.join(args) if isinstance(args, Iterable) else str(args)))
+
+
+def log_result_set(rs, opr_type):
+    logging.info('>>>>>>>>>>>>>>>>> in method %s() [START] <<<<<<<<<<<<<<<<<' % opr_type)
+    for r in rs:
+        for k, v in r.items():
+            logging.info('%s = %s' % (k, v))
+
+    logging.info('>>>>>>>>>>>>>>>>> in method %s() [END] <<<<<<<<<<<<<<<<<' % opr_type)
 
 
 async def create_pool(loop, **kw):
@@ -137,14 +147,24 @@ class Model(dict, metaclass=ModelMetaclass):
     def __init__(self, **kw):
         super(Model, self).__init__(**kw)
 
-    def __getter__(self, key):
+    def __getattr__(self, key):
         try:
             return self[key]
         except KeyError:
             raise AttributeError(r"'Model' object has no attribute '%s'" % key)
 
-    def __setter__(self, key, value):
+    def __setattr__(self, key, value):
         self[key] = value
+
+    def __str__(self):
+        description = '>>>>> In %s :: ' % type(self)
+
+        for k, v in self.items():
+            description += r'[key->%s = Value->%s] | ' % (k, v)
+
+        description = description[:len(description) - 2]
+        description += ' <<<<<<<<<<'
+        return description
 
     def get_value(self, key):
         return getattr(self, key, None)
@@ -192,6 +212,8 @@ class Model(dict, metaclass=ModelMetaclass):
             else:
                 raise ValueError('Invalid limit value: %s' % str(limit))
         rs = await select(' '.join(sql), args)
+        # print result-sets
+        log_result_set(rs, 'find_all')
         return [cls(**r) for r in rs]
 
     @classmethod

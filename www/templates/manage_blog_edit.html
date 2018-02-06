@@ -18,12 +18,12 @@ function initVM(blog) {
             submit: function (event) {
                 event.preventDefault();
                 var $form = $('#vm').find('form');
-                $form.postJSON(action, this.$data, function (err, r) {
+                $form.putJSON(action, this.$data, function (err, r) {
                     if (err) {
                         $form.showFormError(err);
                     }
                     else {
-                        return location.assign('/api/blogs/' + r.id);
+                        return location.assign('/manage/blogs');
                     }
                 });
             }

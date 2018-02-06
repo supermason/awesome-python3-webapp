@@ -56,7 +56,7 @@ async def auth_factory(app, handler):
 
 async def data_factory(app, handler):
     async def parse_data(request):
-        if request.method == 'POST':
+        if request.method == 'POST' or request.method == 'PUT' or request.method == 'DELETE':
             if request.content_type.startswith('application/json'):
                 request.__data__ = await request.json()
                 logging.info('request json: %s' % str(request.__data__))

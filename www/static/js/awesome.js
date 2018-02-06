@@ -278,7 +278,7 @@ $(function () {
                 }
             });
         },
-        postJSON: function (url, data, callback) {
+        putJSON: function (url, data, callback) {
             if (arguments.length===2) {
                 callback = data;
                 data = {};
@@ -287,7 +287,7 @@ $(function () {
                 var $form = $(this);
                 $form.showFormError();
                 $form.showFormLoading(true);
-                _httpJSON('POST', url, data, function (err, r) {
+                _httpJSON('PUT', url, data, function (err, r) {
                     if (err) {
                         $form.showFormError(err);
                         $form.showFormLoading(false);
@@ -309,7 +309,7 @@ function _httpJSON(method, url, data, callback) {
     if (method==='GET') {
         opt.url = url + '?' + data;
     }
-    if (method==='POST') {
+    if (method==='POST' || method === 'PUT' || method === 'DELETE') {
         opt.url = url;
         opt.data = JSON.stringify(data || {});
         opt.contentType = 'application/json';
@@ -345,6 +345,22 @@ function postJSON(url, data, callback) {
         data = {};
     }
     _httpJSON('POST', url, data, callback);
+}
+
+function putJSON(url, data, callback) {
+    if (arguments.length===2) {
+        callback = data;
+        data = {};
+    }
+    _httpJSON('PUT', url, data, callback);
+}
+
+function deleteJSON(url, data, callback) {
+    if (arguments.length===2) {
+        callback = data;
+        data = {};
+    }
+    _httpJSON('DELETE', url, data, callback);
 }
 
 // extends Vue:

@@ -43,6 +43,40 @@ def post(path):
     return decorator
 
 
+def put(path):
+    """
+    Define decorator @put('/path')
+    :param path:
+    :return:
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kw):
+            return func(*args, **kw)
+        wrapper.__method__ = 'PUT'
+        wrapper.__route__ = path
+        return wrapper
+    return decorator
+
+
+def delete(path):
+    """
+    Define decorator @delete('/path')
+    :param path:
+    :return:
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kw):
+            return func(*args, **kw)
+        wrapper.__method__ = 'DELETE'
+        wrapper.__route__ = path
+        return wrapper
+    return decorator
+
+
 def get_required_kw_args(fn):
     args = []
     params = inspect.signature(fn).parameters
@@ -102,7 +136,7 @@ class RequestHandler(object):
     async def __call__(self, request):
         kw = None
         if self.__has_var_kw_arg or self.__has_named_kw_args or self.__required_kw_args:
-            if request.method == 'POST':
+            if request.method == 'POST' or request.method == 'PUT' or request.method == 'DELETE':
                 if not request.content_type:
                     return web.HTTPBadRequest(reason='Missing Content-Type.')
                 ct = request.content_type.lower()
@@ -155,7 +189,7 @@ class RequestHandler(object):
 def add_static(app):
     # path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
     # logging.warning('path=%s' % os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'))
-    path = Path.cwd() / 'www'/ 'static'
+    path = Path.cwd() / 'www' / 'static'
     app.router.add_static('/static/', path)
     logging.info('add static %s => %s' % ('/static/', path))
 

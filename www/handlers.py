@@ -5,10 +5,10 @@
 import re, time, json, logging, hashlib, base64, asyncio
 from www.markdown2 import markdown
 from aiohttp import web
-from www.webf import get, post
+from www.webf import get, post, put, delete
 from www.models import User, Comment, Blog, next_id
 from www.config import configs
-from www.apis import ApiError, ApiValueError, ApiResourceNotFoundError, ApiPermissionError
+from www.apis import ApiError, ApiValueError, ApiResourceNotFoundError, ApiPermissionError, Page
 
 COOKIE_NAME = 'awesession'
 # _COOKIE_KEY = configs.session.secret
@@ -81,18 +81,18 @@ async def cookie2user(cookie):
 
 
 @get('/')
-async def index(request):
-    summary = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed' \
-                'do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
-
-    blogs = [
-        Blog(id='1', name='Test Blog', summary=summary, created_at=time.time() - 120),
-        Blog(id='2', name='Something New', summary=summary, created_at=time.time() - 3600),
-        Blog(id='3', name='Learn Swift', summary=summary, created_at=time.time() - 7200)
-    ]
+async def index(*, page='1'):
+    page_index = get_page_index(page)
+    num = await Blog.find_number('count(id)')
+    page = Page(num)
+    if num == 0:
+        blogs = []
+    else:
+        blogs = await Blog.find_all(orderBy='created_at DESC', limit=(page.offset, page.limit))
 
     return {
         '__template__': 'blogs.html',
+        'page': page,
         'blogs': blogs
     }
 
@@ -135,6 +135,7 @@ async def authenticate(*, email, passwd):
     if len(users) == 0:
         return ApiValueError('email', 'Email not exist.')
     user = users[0]
+    logging.info('details of User: %s' % user)
     sha1 = hashlib.sha1()
     sha1.update(user.id.encode('utf-8'))
     sha1.update(b':')
@@ -158,6 +159,27 @@ def signout(request):
     return r
 
 
+@get('/manage/')
+def manage():
+    return 'redirect:/manage/comments'
+
+
+@get('/manage/comments')
+def manage_comments(*, page='1'):
+    return {
+        '__template__': 'manage_comments.html',
+        'page_index': get_page_index(page)
+    }
+
+
+@get('/manage/blogs')
+def manage_blogs(*, page='1'):
+    return {
+        '__template__': 'manage_blogs.html',
+        'page_index': get_page_index(page)
+    }
+
+
 @get('/manage/blogs/create')
 async def manage_create_blog():
     return {
@@ -165,6 +187,70 @@ async def manage_create_blog():
         'id': '',
         'action': '/api/blogs'
     }
+
+
+@get('/manage/blogs/edit')
+async def manage_edit_blog(*, id):
+    return {
+        '__template__': 'manage_blog_edit.html',
+        'id': id,
+        'action': '/api/blogs/%s' % id
+    }
+
+
+@get('/manage/users')
+def manage_users(*, page='1'):
+    return {
+        '__template__': 'manage_users.html',
+        'page_index': get_page_index(page)
+    }
+
+
+@get('/api/comments')
+async def api_comments(*, page='1'):
+    page_index = get_page_index(page)
+    num = await Comment.find_number('count(id)')
+    page = Page(num, page_index)
+    return dict(page=page, comments=() if num == 0 else await Comment.find_all(orderBy='created_at DESC', limit=(page.offset, page.limit)))
+
+
+@post('/api/blogs/{blog_id}/comments')
+async def api_create_comment(blog_id, request, *, content):
+    user = request.__user__
+    if user is None:
+        raise ApiPermissionError('Please signin first.')
+    if not content or not content.strip():
+        raise ApiValueError('content')
+    blog = await Blog.find(blog_id)
+    if blog is None:
+        raise ApiResourceNotFoundError('Blog')
+    comment = Comment(blog_id=blog_id, user_id=user.id, user_name=user.name, user_image=user.image, content=content.strip())
+    await comment.save()
+    return comment
+
+
+# @post('/api/comments/{comment_id}/delete')
+@delete('/api/comments/{comment_id}')
+async def api_delete_comments(comment_id, request):
+    check_admin(request)
+    comment = await Comment.find(comment_id)
+    if comment is None:
+        raise ApiResourceNotFoundError('Comment')
+    await comment.remove()
+    return dict(id=comment_id)
+
+
+@get('/api/users')
+async def api_get_users(*, page='1'):
+    page_index = get_page_index(page)
+    num = await User.find_number('count(id)')
+    page = Page(num, page_index)
+    if num == 0:
+        return dict(page=page, users=())
+    users = await User.find_all(orderBy='created_at DESC', limit=(page.offset, page.limit))
+    for u in users:
+        u.passwd = '********'
+    return dict(page=page, users=users)
 
 
 _RE_EMAIL = re.compile(r'^[a-z0-9\.\-\_]+\@[a-z0-9\-\_]+(\.[a-z0-9\-\_]+){1,4}$')
@@ -202,6 +288,17 @@ async def api_register_user(*, email, name, passwd):
     return r
 
 
+@get('/api/blogs')
+async def api_blogs(*, page='1'):
+    page_index = get_page_index(page)
+    num = await Blog.find_number('count(id)')
+    p = Page(num, page_index)
+    if num == 0:
+        return dict(page=p, blogs=())
+    blogs = await Blog.find_all(orderBy='created_at DESC', limit=(p.offset, p.limit))
+    return dict(page=p, blogs=blogs)
+
+
 @get('/api/blogs/{blog_id}')
 async def api_get_blog(*, blog_id):
     blog = await Blog.find(blog_id)
@@ -217,13 +314,32 @@ async def api_create_blog(request, *, name, summary, content):
         raise ApiValueError('summary', 'summary cannot be empty.')
     if not content or not content.strip():
         raise ApiValueError('content', 'content cannot be empty.')
-    # blog = Blog(user_id=request.__user__.id, user_name=request.__user__.name, user_image=request.__user__.image, name=name.strip(), summary=summary.strip(), content=content.strip())
-    blog = Blog()
-    blog.user_id = request.__user__.id
-    blog.user_name = request.__user__.name
-    blog.user_image = request.__user__.image
+    blog = Blog(user_id=request.__user__.id, user_name=request.__user__.name, user_image=request.__user__.image, name=name.strip(), summary=summary.strip(), content=content.strip())
+    await blog.save()
+    return blog
+
+
+@put('/api/blogs/{blog_id}')
+async def api_update_blog(blog_id, request, *, name, summary, content):
+    check_admin(request)
+    blog = await Blog.find(blog_id)
+    if not name or not name.strip():
+        raise ApiValueError('name', 'name cannot be empty.')
+    if not summary or not summary.strip():
+        raise ApiValueError('summary', 'summary cannot be empty.')
+    if not content or not content.strip():
+        raise ApiValueError('content', 'content cannot be empty.')
     blog.name = name.strip()
     blog.summary = summary.strip()
     blog.content = content.strip()
-    await blog.save()
+    await blog.update_()
     return blog
+
+
+# @post('/api/blogs/{blog_id}/delete')
+@delete('/api/blogs/{blog_id}')
+async def api_delete_blog(request, *, blog_id):
+    check_admin(request)
+    blog = await Blog.find(blog_id)
+    await blog.remove()
+    return dict(id=blog_id)
